@@ -42,6 +42,22 @@ class CameraMonitor:
         print(line)
         with open(self.log_file, "a") as f:
             f.write(line + "\n")
+
+    def write_status(self, ok: bool, last_frame_path: str | None = None) -> None:
+        try:
+            import json
+            status = {
+                "timestamp": datetime.datetime.now().isoformat(timespec="seconds"),
+                "ok": bool(ok),
+                "camera_index": self.camera_index,
+                "resolution": {"width": self.width, "height": self.height},
+                "backend": "DSHOW/MSMF",
+                "last_frame_path": last_frame_path or "",
+            }
+            with open(os.path.join(self.log_dir, "status.json"), "w", encoding="utf-8") as fp:
+                json.dump(status, fp, indent=2)
+        except Exception:
+            pass
     
     def usb_camera_connected(self) -> bool:
         """Return True if Windows reports any imaging device attached.
@@ -161,6 +177,9 @@ class CameraMonitor:
             cv2.imwrite(filename, frame)
             self.log(f"Saved verification frame: {filename}")
             self.last_saved = now
+            self.write_status(True, filename)
+        else:
+            self.write_status(True, None)
 
         return True
 
@@ -171,6 +190,7 @@ if __name__ == "__main__":
         while True:
             ok = monitor.check_camera()
             if not ok:
+                monitor.write_status(False, None)
                 monitor.log("WARN: Check failed; will retry after interval")
             time.sleep(monitor.check_interval)
     except KeyboardInterrupt:

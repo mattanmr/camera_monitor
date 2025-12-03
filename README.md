@@ -26,6 +26,17 @@ python .\main.py
 
 Verification frames are saved in `monitor_frames`. Logs go to `logs/camera_monitor_win.log`.
 
+## Status JSON
+
+After each check, the app writes `logs/status.json` with:
+- `timestamp`: ISO time of the last check
+- `ok`: whether the last check succeeded
+- `camera_index`: index used for capture
+- `resolution`: width/height configuration
+- `last_frame_path`: path to the last saved verification frame (if any)
+
+This file is useful for external monitoring or dashboards.
+
 ## Tips for Windows 11
 - Privacy: Settings → Privacy & security → Camera → allow desktop apps.
 - Close apps that may hold the camera (Teams/Zoom/OBS/Camera app).

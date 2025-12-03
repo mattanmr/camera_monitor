@@ -4,17 +4,23 @@ __pycache__/
 *.pyd
 *.so
 *.dll
+*.pyc
+
+# Byte-compiled / optimized / DLL files
+**/*.pyc
 
 # Environments
 .venv/
 venv/
 ENV/
+env/
 
 # VS Code
 .vscode/
 
 # Logs
 *.log
+logs/
 
 # Generated frames
 monitor_frames/
@@ -24,3 +30,12 @@ build/
 dist/
 *.egg-info/
 .eggs/
+
+# OS-specific
+.DS_Store
+Thumbs.db
+Desktop.ini
+
+# Images and generated assets
+# Saved verification frames
+monitor_frames/

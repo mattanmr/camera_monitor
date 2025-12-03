@@ -16,8 +16,8 @@ ENV/
 # Logs
 *.log
 
-# output sanpshots
-.monitor_frames/
+# Generated frames
+monitor_frames/
 
 # Distribution / packaging
 build/

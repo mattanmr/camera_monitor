@@ -58,7 +58,7 @@ class CameraMonitor:
             f.write(line + "\n")
 
     def apply_ptz_effect(self, frame) -> tuple[np.ndarray, str]:
-        """Apply current PTZ effect from the cycle and advance to next effect.
+        """Apply current PTZ effect from the cycle without advancing.
 
         Returns:
             (transformed_frame, effect_name) tuple
@@ -69,15 +69,11 @@ class CameraMonitor:
         effect_name, effect_func, effect_args = self.ptz_effects[self.ptz_cycle_index]
 
         if effect_func is None:
-            # Original frame, no transformation
             transformed = frame.copy()
         else:
-            # Apply the effect with its arguments
             transformed = effect_func(frame, **effect_args)
 
-        # Advance to next effect for next cycle
-        self.ptz_cycle_index = (self.ptz_cycle_index + 1) % len(self.ptz_effects)
-
+        # Do NOT advance here; advancement happens only after a successful save
         return transformed, effect_name
 
     def write_status(self, ok: bool, last_frame_path: str | None = None, backend: str | None = None) -> None:
@@ -325,12 +321,8 @@ class CameraMonitor:
 
         self.log(f"OK: Frame captured from index {working_index}")
 
-        # Apply PTZ effect cycling if enabled
+        # Note: PTZ effect will be applied only when saving, and cycle advances only on successful save
         effect_name = "none"
-        if self.enable_ptz_cycling:
-            frame, effect_name = self.apply_ptz_effect(frame)
-            if effect_name != "none":
-                self.log(f"Applied PTZ effect: {effect_name}")
 
         # Hourly verification frame (or configured interval)
         now = time.time()
@@ -340,10 +332,23 @@ class CameraMonitor:
                 datetime.datetime.now().strftime("%Y%m%d_%H%M%S.jpg")
             )
             try:
+                # Apply PTZ effect before saving, and advance index only on successful save
+                if self.enable_ptz_cycling:
+                    frame_to_save, effect_name = self.apply_ptz_effect(frame)
+                else:
+                    frame_to_save, effect_name = frame, "none"
                 cv2.imwrite(filename, frame)
+                # Save the transformed frame if cycling is enabled; otherwise save original
+                if self.enable_ptz_cycling:
+                    cv2.imwrite(filename, frame_to_save)
+                else:
+                    cv2.imwrite(filename, frame_to_save)
                 self.log(f"Saved verification frame (effect={effect_name}) from index {working_index}: {filename}")
                 self.last_saved = now
                 self.write_status(True, filename, backend=used_backend)
+                # Advance cycle only after a successful save
+                if self.enable_ptz_cycling:
+                    self.ptz_cycle_index = (self.ptz_cycle_index + 1) % len(self.ptz_effects)
             except Exception:
                 self.log("WARN: Failed to save verification frame")
                 # write status but keep prior saved frame path

@@ -465,6 +465,100 @@ class CameraMonitor:
             self.log(f"ERROR: Failed to reset PTZ: {e}")
             return False
 
+    def digital_pan(self, frame, pan_offset: float = 0.5) -> np.ndarray:
+        """Simulate pan by cropping and centering frame on region.
+
+        Args:
+            frame: Input frame
+            pan_offset: Offset from center (-1.0 to 1.0, where -1=far left, 0=center, 1=far right)
+
+        Returns:
+            Cropped and resized frame simulating pan motion.
+        """
+        if frame is None:
+            return frame
+
+        h, w = frame.shape[:2]
+        crop_ratio = 0.8  # Use 80% of frame
+        crop_w = int(w * crop_ratio)
+        crop_h = int(h * crop_ratio)
+
+        # Calculate pan offset (-1 to 1 maps to left to right)
+        center_x = int(w * (0.5 + pan_offset * 0.25))
+        center_y = h // 2
+
+        x1 = max(0, center_x - crop_w // 2)
+        x2 = min(w, x1 + crop_w)
+        y1 = max(0, center_y - crop_h // 2)
+        y2 = min(h, y1 + crop_h)
+
+        cropped = frame[y1:y2, x1:x2]
+        return cv2.resize(cropped, (w, h), interpolation=cv2.INTER_LINEAR)
+
+    def digital_tilt(self, frame, tilt_offset: float = 0.5) -> np.ndarray:
+        """Simulate tilt by cropping and centering frame on region.
+
+        Args:
+            frame: Input frame
+            tilt_offset: Offset from center (-1.0 to 1.0, where -1=top, 0=center, 1=bottom)
+
+        Returns:
+            Cropped and resized frame simulating tilt motion.
+        """
+        if frame is None:
+            return frame
+
+        h, w = frame.shape[:2]
+        crop_ratio = 0.8  # Use 80% of frame
+        crop_w = int(w * crop_ratio)
+        crop_h = int(h * crop_ratio)
+
+        # Calculate tilt offset (-1 to 1 maps to top to bottom)
+        center_x = w // 2
+        center_y = int(h * (0.5 + tilt_offset * 0.25))
+
+        x1 = max(0, center_x - crop_w // 2)
+        x2 = min(w, x1 + crop_w)
+        y1 = max(0, center_y - crop_h // 2)
+        y2 = min(h, y1 + crop_h)
+
+        cropped = frame[y1:y2, x1:x2]
+        return cv2.resize(cropped, (w, h), interpolation=cv2.INTER_LINEAR)
+
+    def digital_zoom(self, frame, zoom_factor: float = 1.5) -> np.ndarray:
+        """Simulate zoom by cropping center and resizing.
+
+        Args:
+            frame: Input frame
+            zoom_factor: Zoom multiplier (1.0 = no zoom, 2.0 = 2x zoom, 0.5 = zoom out)
+
+        Returns:
+            Zoomed frame (cropped from center and resized to original size).
+        """
+        if frame is None or zoom_factor <= 0:
+            return frame
+
+        h, w = frame.shape[:2]
+
+        # Clamp zoom to reasonable range
+        zoom_factor = max(0.5, min(3.0, zoom_factor))
+
+        # Calculate crop box from center
+        crop_w = int(w / zoom_factor)
+        crop_h = int(h / zoom_factor)
+
+        # Ensure crop box doesn't exceed frame bounds
+        crop_w = min(crop_w, w)
+        crop_h = min(crop_h, h)
+
+        x1 = (w - crop_w) // 2
+        y1 = (h - crop_h) // 2
+        x2 = x1 + crop_w
+        y2 = y1 + crop_h
+
+        cropped = frame[y1:y2, x1:x2]
+        return cv2.resize(cropped, (w, h), interpolation=cv2.INTER_LINEAR)
+
 if __name__ == "__main__":
     monitor = CameraMonitor()
     monitor.log("=== Windows Camera Monitor Started ===")

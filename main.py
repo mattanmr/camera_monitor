@@ -15,10 +15,11 @@ class CameraMonitor:
         log_file: str = "camera_monitor_win.log",
         save_dir: str = "monitor_frames",
         check_interval: int = 5,
-        frame_save_interval: int = 900,#3600,
+        frame_save_interval: int = 10,#900,#3600,
         width: int = 1280,
         height: int = 720,
         use_mjpg: bool = True,
+        enable_ptz_cycling: bool = True,
     ) -> None:
         self.base_dir = os.path.dirname(os.path.abspath(__file__))
         self.camera_index = camera_index
@@ -32,6 +33,20 @@ class CameraMonitor:
         self.height = height
         self.use_mjpg = use_mjpg
         self.last_saved = 0
+        self.enable_ptz_cycling = enable_ptz_cycling
+        self.ptz_cycle_index = 0
+
+        # PTZ cycle effects: (effect_name, effect_func, effect_args)
+        self.ptz_effects = [
+            ("original", None, {}),
+            ("pan_left", self.digital_pan, {"pan_offset": -1.0}),
+            ("pan_right", self.digital_pan, {"pan_offset": 1.0}),
+            ("tilt_up", self.digital_tilt, {"tilt_offset": -1.0}),
+            ("tilt_down", self.digital_tilt, {"tilt_offset": 1.0}),
+            ("zoom_2x", self.digital_zoom, {"zoom_factor": 2.0}),
+            ("zoom_3x", self.digital_zoom, {"zoom_factor": 3.0}),
+            ("zoom_out", self.digital_zoom, {"zoom_factor": 0.5}),
+        ]
 
         os.makedirs(self.save_dir, exist_ok=True)
 
@@ -41,6 +56,29 @@ class CameraMonitor:
         print(line)
         with open(self.log_file, "a") as f:
             f.write(line + "\n")
+
+    def apply_ptz_effect(self, frame) -> tuple[np.ndarray, str]:
+        """Apply current PTZ effect from the cycle and advance to next effect.
+
+        Returns:
+            (transformed_frame, effect_name) tuple
+        """
+        if not self.enable_ptz_cycling or frame is None:
+            return frame, "none"
+
+        effect_name, effect_func, effect_args = self.ptz_effects[self.ptz_cycle_index]
+
+        if effect_func is None:
+            # Original frame, no transformation
+            transformed = frame.copy()
+        else:
+            # Apply the effect with its arguments
+            transformed = effect_func(frame, **effect_args)
+
+        # Advance to next effect for next cycle
+        self.ptz_cycle_index = (self.ptz_cycle_index + 1) % len(self.ptz_effects)
+
+        return transformed, effect_name
 
     def write_status(self, ok: bool, last_frame_path: str | None = None, backend: str | None = None) -> None:
         # Load existing status (preserve last_frame_path if caller doesn't provide one)
@@ -287,6 +325,13 @@ class CameraMonitor:
 
         self.log(f"OK: Frame captured from index {working_index}")
 
+        # Apply PTZ effect cycling if enabled
+        effect_name = "none"
+        if self.enable_ptz_cycling:
+            frame, effect_name = self.apply_ptz_effect(frame)
+            if effect_name != "none":
+                self.log(f"Applied PTZ effect: {effect_name}")
+
         # Hourly verification frame (or configured interval)
         now = time.time()
         if now - self.last_saved >= self.frame_save_interval:
@@ -296,7 +341,7 @@ class CameraMonitor:
             )
             try:
                 cv2.imwrite(filename, frame)
-                self.log(f"Saved verification frame from index {working_index}: {filename}")
+                self.log(f"Saved verification frame (effect={effect_name}) from index {working_index}: {filename}")
                 self.last_saved = now
                 self.write_status(True, filename, backend=used_backend)
             except Exception:

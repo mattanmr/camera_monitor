@@ -15,7 +15,7 @@ class CameraMonitor:
         log_file: str = "camera_monitor_win.log",
         save_dir: str = "monitor_frames",
         check_interval: int = 5,
-        frame_save_interval: int = 10,#900,#3600,
+        frame_save_interval: int = 900,#3600,
         width: int = 1280,
         height: int = 720,
         use_mjpg: bool = True,

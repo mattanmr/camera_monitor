@@ -309,6 +309,162 @@ class CameraMonitor:
 
         return True
 
+    def set_pan(self, value: int) -> bool:
+        """Set pan position (-180 to 180 degrees, camera-dependent).
+
+        Args:
+            value: Pan angle in degrees (camera-specific range may vary)
+
+        Returns:
+            True if property was set successfully, False otherwise.
+        """
+        try:
+            cap = cv2.VideoCapture(self.camera_index, cv2.CAP_DSHOW)
+            if not cap.isOpened():
+                cap = cv2.VideoCapture(self.camera_index, cv2.CAP_MSMF)
+
+            if not cap.isOpened():
+                self.log("WARN: Could not open camera to set pan")
+                return False
+
+            result = cap.set(cv2.CAP_PROP_PAN, float(value))
+            actual = cap.get(cv2.CAP_PROP_PAN)
+            cap.release()
+
+            if result or actual != -1:
+                self.log(f"Pan set to {value} (actual: {actual})")
+                return True
+            else:
+                self.log(f"WARN: Could not set pan to {value} (camera may not support PTZ)")
+                return False
+        except Exception as e:
+            self.log(f"ERROR: Failed to set pan: {e}")
+            return False
+
+    def set_tilt(self, value: int) -> bool:
+        """Set tilt position (-180 to 180 degrees, camera-dependent).
+
+        Args:
+            value: Tilt angle in degrees (camera-specific range may vary)
+
+        Returns:
+            True if property was set successfully, False otherwise.
+        """
+        try:
+            cap = cv2.VideoCapture(self.camera_index, cv2.CAP_DSHOW)
+            if not cap.isOpened():
+                cap = cv2.VideoCapture(self.camera_index, cv2.CAP_MSMF)
+
+            if not cap.isOpened():
+                self.log("WARN: Could not open camera to set tilt")
+                return False
+
+            result = cap.set(cv2.CAP_PROP_TILT, float(value))
+            actual = cap.get(cv2.CAP_PROP_TILT)
+            cap.release()
+
+            if result or actual != -1:
+                self.log(f"Tilt set to {value} (actual: {actual})")
+                return True
+            else:
+                self.log(f"WARN: Could not set tilt to {value} (camera may not support PTZ)")
+                return False
+        except Exception as e:
+            self.log(f"ERROR: Failed to set tilt: {e}")
+            return False
+
+    def set_zoom(self, value: int) -> bool:
+        """Set zoom level (typically 0-10 or 100-400, camera-dependent).
+
+        Args:
+            value: Zoom value (camera-specific range may vary)
+
+        Returns:
+            True if property was set successfully, False otherwise.
+        """
+        try:
+            cap = cv2.VideoCapture(self.camera_index, cv2.CAP_DSHOW)
+            if not cap.isOpened():
+                cap = cv2.VideoCapture(self.camera_index, cv2.CAP_MSMF)
+
+            if not cap.isOpened():
+                self.log("WARN: Could not open camera to set zoom")
+                return False
+
+            result = cap.set(cv2.CAP_PROP_ZOOM, float(value))
+            actual = cap.get(cv2.CAP_PROP_ZOOM)
+            cap.release()
+
+            if result or actual != -1:
+                self.log(f"Zoom set to {value} (actual: {actual})")
+                return True
+            else:
+                self.log(f"WARN: Could not set zoom to {value} (camera may not support PTZ)")
+                return False
+        except Exception as e:
+            self.log(f"ERROR: Failed to set zoom: {e}")
+            return False
+
+    def get_ptz_position(self) -> dict:
+        """Get current PTZ position if supported by camera.
+
+        Returns:
+            Dictionary with keys 'pan', 'tilt', 'zoom' and their current values,
+            or 'error' key if camera cannot be opened.
+        """
+        try:
+            cap = cv2.VideoCapture(self.camera_index, cv2.CAP_DSHOW)
+            if not cap.isOpened():
+                cap = cv2.VideoCapture(self.camera_index, cv2.CAP_MSMF)
+
+            if not cap.isOpened():
+                return {"error": "Could not open camera"}
+
+            position = {
+                "pan": float(cap.get(cv2.CAP_PROP_PAN)),
+                "tilt": float(cap.get(cv2.CAP_PROP_TILT)),
+                "zoom": float(cap.get(cv2.CAP_PROP_ZOOM)),
+            }
+            cap.release()
+
+            self.log(f"PTZ Position: pan={position['pan']}, tilt={position['tilt']}, zoom={position['zoom']}")
+            return position
+        except Exception as e:
+            self.log(f"ERROR: Failed to get PTZ position: {e}")
+            return {"error": str(e)}
+
+    def reset_ptz(self) -> bool:
+        """Reset PTZ to home/center position (0, 0, 0).
+
+        Returns:
+            True if reset was successful, False otherwise.
+        """
+        try:
+            cap = cv2.VideoCapture(self.camera_index, cv2.CAP_DSHOW)
+            if not cap.isOpened():
+                cap = cv2.VideoCapture(self.camera_index, cv2.CAP_MSMF)
+
+            if not cap.isOpened():
+                self.log("WARN: Could not open camera to reset PTZ")
+                return False
+
+            success = True
+            success &= bool(cap.set(cv2.CAP_PROP_PAN, 0.0))
+            success &= bool(cap.set(cv2.CAP_PROP_TILT, 0.0))
+            success &= bool(cap.set(cv2.CAP_PROP_ZOOM, 0.0))
+
+            cap.release()
+
+            if success:
+                self.log("PTZ reset to home position (0, 0, 0)")
+            else:
+                self.log("WARN: Could not reset PTZ (camera may not support PTZ or partial support)")
+
+            return bool(success)
+        except Exception as e:
+            self.log(f"ERROR: Failed to reset PTZ: {e}")
+            return False
+
 if __name__ == "__main__":
     monitor = CameraMonitor()
     monitor.log("=== Windows Camera Monitor Started ===")

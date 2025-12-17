@@ -173,48 +173,64 @@ class CameraMonitor:
             return False
 
         # DShow-first strategy, then MSMF, with index probing
+        # Use a local working_index to avoid permanently switching on transient failures
         cap = None
         opened = False
         used_backend = "UNKNOWN"
+        working_index = self.camera_index
 
         dshow = getattr(cv2, "CAP_DSHOW", None)
         if dshow is not None:
-            self.log(f"INFO: Trying DirectShow (CAP_DSHOW) on index {self.camera_index}")
-            cap = cv2.VideoCapture(self.camera_index, dshow)
+            self.log(f"INFO: Trying DirectShow (CAP_DSHOW) on index {working_index}")
+            cap = cv2.VideoCapture(working_index, dshow)
             if not cap.isOpened():
-                self.log("WARN: DShow failed; probing indices 0-5 with DShow")
+                self.log(f"WARN: DShow failed on index {working_index}; probing indices 0-5 with DShow")
+                probe_idx = None
                 for idx in range(0, 6):
+                    # Skip the original index since we just tried it
+                    if idx == self.camera_index:
+                        continue
                     probe = cv2.VideoCapture(idx, dshow)
                     if probe.isOpened():
-                        self.log(f"INFO: DShow found camera at index {idx}")
-                        self.camera_index = idx
-                        cap = probe
-                        opened = True
-                        used_backend = "DSHOW"
+                        self.log(f"INFO: DShow found camera at index {idx} (but preferring configured index {self.camera_index})")
+                        probe_idx = idx
+                        probe.release()
                         break
                     probe.release()
-            else:
+                # Only use probe_idx if original index failed; don't permanently switch
+                if probe_idx is not None:
+                    self.log(f"WARN: Using fallback index {probe_idx} since configured index {self.camera_index} unavailable")
+                    working_index = probe_idx
+                    cap = cv2.VideoCapture(working_index, dshow)
+            if cap.isOpened():
                 opened = True
                 used_backend = "DSHOW"
 
         if not opened:
             msmf = getattr(cv2, "CAP_MSMF", None)
             if msmf is not None:
-                self.log(f"INFO: Trying Media Foundation (CAP_MSMF) on index {self.camera_index}")
-                cap = cv2.VideoCapture(self.camera_index, msmf)
+                self.log(f"INFO: Trying Media Foundation (CAP_MSMF) on index {working_index}")
+                cap = cv2.VideoCapture(working_index, msmf)
                 if not cap.isOpened():
-                    self.log("WARN: MSMF failed; probing indices 0-5 with MSMF")
+                    self.log(f"WARN: MSMF failed on index {working_index}; probing indices 0-5 with MSMF")
+                    probe_idx = None
                     for idx in range(0, 6):
+                        # Skip the original index since we just tried it
+                        if idx == self.camera_index:
+                            continue
                         probe = cv2.VideoCapture(idx, msmf)
                         if probe.isOpened():
-                            self.log(f"INFO: MSMF found camera at index {idx}")
-                            self.camera_index = idx
-                            cap = probe
-                            opened = True
-                            used_backend = "MSMF"
+                            self.log(f"INFO: MSMF found camera at index {idx} (but preferring configured index {self.camera_index})")
+                            probe_idx = idx
+                            probe.release()
                             break
                         probe.release()
-                else:
+                    # Only use probe_idx if original index failed; don't permanently switch
+                    if probe_idx is not None:
+                        self.log(f"WARN: Using fallback index {probe_idx} since configured index {self.camera_index} unavailable")
+                        working_index = probe_idx
+                        cap = cv2.VideoCapture(working_index, msmf)
+                if cap.isOpened():
                     opened = True
                     used_backend = "MSMF"
 
@@ -265,11 +281,11 @@ class CameraMonitor:
 
         if not ret or frame is None:
             self.log("ERROR: Failed to read frame")
-            # preserve backend info in status
+            # preserve backend info in status; report configured index (self.camera_index)
             self.write_status(False, None, backend=used_backend)
             return False
 
-        self.log("OK: Frame captured")
+        self.log(f"OK: Frame captured from index {working_index}")
 
         # Hourly verification frame (or configured interval)
         now = time.time()
@@ -280,7 +296,7 @@ class CameraMonitor:
             )
             try:
                 cv2.imwrite(filename, frame)
-                self.log(f"Saved verification frame: {filename}")
+                self.log(f"Saved verification frame from index {working_index}: {filename}")
                 self.last_saved = now
                 self.write_status(True, filename, backend=used_backend)
             except Exception:

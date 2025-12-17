@@ -2,9 +2,8 @@ import cv2
 import time
 import datetime
 import os
-import psutil
 import subprocess
-
+import numpy as np
 
 
 class CameraMonitor:
@@ -16,7 +15,7 @@ class CameraMonitor:
         log_file: str = "camera_monitor_win.log",
         save_dir: str = "monitor_frames",
         check_interval: int = 5,
-        frame_save_interval: int = 3600,
+        frame_save_interval: int = 900,#3600,
         width: int = 1280,
         height: int = 720,
         use_mjpg: bool = True,
@@ -43,20 +42,40 @@ class CameraMonitor:
         with open(self.log_file, "a") as f:
             f.write(line + "\n")
 
-    def write_status(self, ok: bool, last_frame_path: str | None = None) -> None:
+    def write_status(self, ok: bool, last_frame_path: str | None = None, backend: str | None = None) -> None:
+        # Load existing status (preserve last_frame_path if caller doesn't provide one)
         try:
             import json
-            status = {
-                "timestamp": datetime.datetime.now().isoformat(timespec="seconds"),
-                "ok": bool(ok),
-                "camera_index": self.camera_index,
-                "resolution": {"width": self.width, "height": self.height},
-                "backend": "DSHOW/MSMF",
-                "last_frame_path": last_frame_path or "",
-            }
-            with open(os.path.join(self.log_dir, "status.json"), "w", encoding="utf-8") as fp:
+            status_path = os.path.join(self.log_dir, "status.json")
+            status = {}
+            if os.path.exists(status_path):
+                try:
+                    with open(status_path, "r", encoding="utf-8") as fp:
+                        status = json.load(fp)
+                except Exception:
+                    status = {}
+
+            # Update fields
+            status["timestamp"] = datetime.datetime.now().isoformat(timespec="seconds")
+            status["ok"] = bool(ok)
+            status["camera_index"] = self.camera_index
+            status["resolution"] = {"width": self.width, "height": self.height}
+            # Only overwrite backend if provided; else preserve existing or set default
+            if backend is not None:
+                status["backend"] = backend
+            else:
+                status.setdefault("backend", "DSHOW/MSMF")
+
+            # Preserve last_frame_path unless a non-None value is explicitly provided
+            if last_frame_path is not None:
+                status["last_frame_path"] = last_frame_path
+            else:
+                status.setdefault("last_frame_path", "")
+
+            with open(status_path, "w", encoding="utf-8") as fp:
                 json.dump(status, fp, indent=2)
         except Exception:
+            # Don't let status write failures crash monitoring
             pass
     
     def usb_camera_connected(self) -> bool:
@@ -90,6 +109,63 @@ class CameraMonitor:
         # Fail-open so monitoring continues; capture attempt will confirm
         return True
     
+    def is_black_frame(self, frame, *, mean_thresh=12.0, pct_dark_thresh=0.98, std_thresh=3.0, edge_thresh=20):
+        """Return (is_black, reasons) where reasons explains which checks failed.
+
+        Heuristics used (combination improves robustness):
+        - mean pixel intensity below mean_thresh
+        - fraction of pixels with value <= mean_thresh is above pct_dark_thresh
+        - standard deviation across pixels below std_thresh (nearly constant image)
+        - edge pixel count (Canny) below edge_thresh
+        """
+        reasons = {}
+        if frame is None:
+            reasons['none'] = True
+            return True, reasons
+
+        # Ensure numpy array
+        try:
+            arr = np.asarray(frame)
+        except Exception:
+            reasons['not_array'] = True
+            return True, reasons
+
+        if arr.size == 0:
+            reasons['empty'] = True
+            return True, reasons
+
+        # Compute mean on grayscale equivalent
+        if arr.ndim == 3 and arr.shape[2] == 3:
+            gray = cv2.cvtColor(arr, cv2.COLOR_BGR2GRAY)
+        else:
+            gray = arr if arr.ndim == 2 else cv2.cvtColor(arr, cv2.COLOR_BGR2GRAY)
+
+        mean = float(np.mean(gray))
+        reasons['mean'] = mean
+
+        pct_dark = float(np.count_nonzero(gray <= mean_thresh)) / gray.size
+        reasons['pct_dark'] = pct_dark
+
+        std = float(np.std(gray))
+        reasons['std'] = std
+
+        # Edge-based check: if very few edges, likely black/blank
+        try:
+            edges = cv2.Canny(gray, 50, 150)
+            edge_count = int(np.count_nonzero(edges))
+        except Exception:
+            edge_count = 9999
+        reasons['edge_count'] = edge_count
+
+        is_black = (
+            mean < mean_thresh
+            or pct_dark >= pct_dark_thresh
+            or std < std_thresh
+            or edge_count <= edge_thresh
+        )
+
+        return bool(is_black), reasons
+
     def check_camera(self):
         # Check if USB device is present (Windows)
         if not self.usb_camera_connected():
@@ -99,6 +175,7 @@ class CameraMonitor:
         # DShow-first strategy, then MSMF, with index probing
         cap = None
         opened = False
+        used_backend = "UNKNOWN"
 
         dshow = getattr(cv2, "CAP_DSHOW", None)
         if dshow is not None:
@@ -113,10 +190,12 @@ class CameraMonitor:
                         self.camera_index = idx
                         cap = probe
                         opened = True
+                        used_backend = "DSHOW"
                         break
                     probe.release()
             else:
                 opened = True
+                used_backend = "DSHOW"
 
         if not opened:
             msmf = getattr(cv2, "CAP_MSMF", None)
@@ -132,10 +211,12 @@ class CameraMonitor:
                             self.camera_index = idx
                             cap = probe
                             opened = True
+                            used_backend = "MSMF"
                             break
                         probe.release()
                 else:
                     opened = True
+                    used_backend = "MSMF"
 
         if not opened or cap is None:
             self.log("ERROR: Could not open camera via DShow or MSMF")
@@ -151,35 +232,64 @@ class CameraMonitor:
         except Exception:
             pass
 
-        # Short retry loop in case the stream is busy
+        # Warmup and read loop: allow camera auto-exposure to settle and avoid black frames
         frame = None
         ret = False
-        for attempt in range(3):
+        # short warmup reads
+        try:
+            for _ in range(15):
+                cap.read()
+                time.sleep(0.01)
+        except Exception:
+            pass
+
+        # Try multiple attempts and verify frame is not black using several heuristics
+        for attempt in range(6):
             ret, frame = cap.read()
-            if ret and frame is not None:
-                break
-            time.sleep(0.2)
+            if not ret or frame is None:
+                time.sleep(0.2)
+                continue
+            try:
+                is_black, reasons = self.is_black_frame(frame)
+            except Exception:
+                is_black, reasons = False, {'error': 'is_black_check_failed'}
+            if is_black:
+                # Too dark/blank; let camera adjust and retry
+                self.log(f"WARN: Captured frame considered black; reasons={reasons}; retrying ({attempt+1}/6)")
+                time.sleep(0.3)
+                continue
+            # good frame
+            break
+
         cap.release()
 
         if not ret or frame is None:
             self.log("ERROR: Failed to read frame")
+            # preserve backend info in status
+            self.write_status(False, None, backend=used_backend)
             return False
 
         self.log("OK: Frame captured")
 
-        # Hourly verification frame
+        # Hourly verification frame (or configured interval)
         now = time.time()
         if now - self.last_saved >= self.frame_save_interval:
             filename = os.path.join(
                 self.save_dir,
                 datetime.datetime.now().strftime("%Y%m%d_%H%M%S.jpg")
             )
-            cv2.imwrite(filename, frame)
-            self.log(f"Saved verification frame: {filename}")
-            self.last_saved = now
-            self.write_status(True, filename)
+            try:
+                cv2.imwrite(filename, frame)
+                self.log(f"Saved verification frame: {filename}")
+                self.last_saved = now
+                self.write_status(True, filename, backend=used_backend)
+            except Exception:
+                self.log("WARN: Failed to save verification frame")
+                # write status but keep prior saved frame path
+                self.write_status(True, None, backend=used_backend)
         else:
-            self.write_status(True, None)
+            # don't overwrite last_frame_path with empty value; preserve prior
+            self.write_status(True, None, backend=used_backend)
 
         return True
 

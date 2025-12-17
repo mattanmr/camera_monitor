@@ -22,9 +22,6 @@ env/
 *.log
 logs/
 
-# Generated frames
-monitor_frames/
-
 # Distribution / packaging
 build/
 dist/

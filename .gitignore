@@ -36,3 +36,6 @@ Desktop.ini
 # Images and generated assets
 # Saved verification frames
 monitor_frames/
+
+# pycharm
+.idea/

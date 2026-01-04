@@ -1,40 +1,131 @@
+import time
+import argparse
+import logging
+
 import cv2
-import numpy as np
 
-def find_diff(frame1, frame2):
-    # find the absolute difference between two frames and return true if difference is found
-    diff = cv2.absdiff(frame1, frame2)
-    gray = cv2.cvtColor(diff, cv2.COLOR_BGR2GRAY)
-    _, thresh = cv2.threshold(gray, 30, 255, cv2.THRESH_BINARY)
-    non_zero_count = cv2.countNonZero(thresh)
-    return non_zero_count > 0
+logger = logging.getLogger(__name__)
 
-def capture_video():
-    cap = cv2.VideoCapture(0)
-    current_time = cv2.getTickCount()
-    print(f"Video capture started at time: {current_time} and time passed since start: {(current_time - start_time)/cv2.getTickFrequency()} seconds")
-    red_dot = (0, 0, 255)  # BGR format for red color
-    blue_dot = (255, 0, 0)  # BGR format for blue color
+
+def preprocess(frame, width=None, blur_ksize=(5, 5)):
+    """Resize (optional), convert to gray and blur to reduce noise."""
+    if width is not None:
+        h, w = frame.shape[:2]
+        scale = float(width) / float(w)
+        frame = cv2.resize(frame, (int(w * scale), int(h * scale)))
+    gray = cv2.cvtColor(frame, cv2.COLOR_BGR2GRAY)
+    blurred = cv2.GaussianBlur(gray, blur_ksize, 0)
+    return blurred
+
+
+def detect_motion(prev_frame, curr_frame, thresh_val=25, min_area=500):
+    """Return (motion_detected: bool, diff, thresh, large_contours).
+
+    Uses absolute difference, thresholding, morphological filtering and contour area
+    filtering to suppress camera noise.
+    """
+    diff = cv2.absdiff(prev_frame, curr_frame)
+    _, thresh = cv2.threshold(diff, thresh_val, 255, cv2.THRESH_BINARY)
+
+    # Remove small noise and close gaps
+    kernel = cv2.getStructuringElement(cv2.MORPH_ELLIPSE, (5, 5))
+    thresh = cv2.morphologyEx(thresh, cv2.MORPH_OPEN, kernel, iterations=1)
+    thresh = cv2.dilate(thresh, kernel, iterations=2)
+
+    contours, _ = cv2.findContours(thresh, cv2.RETR_EXTERNAL, cv2.CHAIN_APPROX_SIMPLE)
+    large_contours = [c for c in contours if cv2.contourArea(c) >= min_area]
+
+    return len(large_contours) > 0, diff, thresh, large_contours
+
+
+def capture_video(source=0, duration=None, show_windows=True, min_area=500, width=None, thresh=25):
+    """Capture from `source` for `duration` seconds (None = until 'q').
+
+    Draws a red dot when motion is detected, blue otherwise. Returns True on normal exit.
+    """
+    cap = cv2.VideoCapture(source)
+    if not cap.isOpened():
+        logger.error("Failed to open video source: %s", source)
+        return False
+
+    # Initialize previous frame
+    ret, frame = cap.read()
+    if not ret or frame is None:
+        logger.error("No frames available from source %s", source)
+        cap.release()
+        return False
+
+    prev = preprocess(frame, width=width)
+
+    start_time = time.time()
+    logger.info("Video capture started at unix time: %.3f", start_time)
+
+    red_dot = (0, 0, 255)
+    blue_dot = (255, 0, 0)
+
     while True:
         ret, frame = cap.read()
-        if not ret:
-            break  # Break the loop if no frame is returned
+        if not ret or frame is None:
+            logger.warning("Frame read failed; stopping capture")
+            break
 
-        height, width, _ = frame.shape
-        center = (width - 60, 60)
-        color = red_dot if find_diff(frame, np.zeros_like(frame)) else blue_dot
+        proc = preprocess(frame, width=width)
+        motion, diff, thresh_img, contours = detect_motion(prev, proc, thresh_val=thresh, min_area=min_area)
+
+        # choose dot color
+        h, w = frame.shape[:2]
+        center = (w - 60, 60)
+        color = red_dot if motion else blue_dot
         cv2.circle(frame, center, 10, color, -1)
 
-        cv2.imshow('Live Video', frame)
+        # draw bounding boxes (for debugging)
+        for c in contours:
+            x, y, cw, ch = cv2.boundingRect(c)
+            cv2.rectangle(frame, (int(x * (frame.shape[1] / float(proc.shape[1]))), int(y * (frame.shape[0] / float(proc.shape[0])))),
+                          (int((x + cw) * (frame.shape[1] / float(proc.shape[1]))), int((y + ch) * (frame.shape[0] / float(proc.shape[0])))),
+                          (0, 255, 0), 2)
 
-        if cv2.waitKey(1) & 0xFF == ord('q'):
+        if show_windows:
+            cv2.imshow('Live Video', frame)
+            cv2.imshow('DIFF', diff)
+            cv2.imshow('THRESH', thresh_img)
+
+        prev = proc
+
+        if (cv2.waitKey(1) & 0xFF) == ord('q'):
+            logger.info('User requested exit (q)')
+            break
+
+        if duration is not None and (time.time() - start_time) >= duration:
+            logger.info('Specified duration reached: %.1fs', duration)
             break
 
     cap.release()
-    cv2.destroyAllWindows()
+    if show_windows:
+        cv2.destroyAllWindows()
+    return True
 
 
-if __name__ == "__main__":
-    # start time count and show when the video capture starts
-    start_time = cv2.getTickCount()
-    capture_video()
+def build_arg_parser():
+    p = argparse.ArgumentParser(description='Simple motion detector test harness')
+    p.add_argument('--source', type=int, default=0, help='Video source index (default 0)')
+    p.add_argument('--duration', type=float, default=10.0, help='Seconds to run the capture (default 10)')
+    p.add_argument('--min-area', type=int, default=500, help='Minimum contour area to count as motion')
+    p.add_argument('--width', type=int, default=None, help='Optional width to resize frames for processing')
+    p.add_argument('--thresh', type=int, default=25, help='Threshold value for diff->binary')
+    p.add_argument('--no-windows', action='store_true', help='Do not show OpenCV GUI windows')
+    return p
+
+
+if __name__ == '__main__':
+    logging.basicConfig(level=logging.INFO, format='%(asctime)s [%(levelname)s] %(message)s')
+    args = build_arg_parser().parse_args()
+
+    show_windows = not args.no_windows
+
+    success = capture_video(source=args.source, duration=args.duration, show_windows=show_windows,
+                            min_area=args.min_area, width=args.width, thresh=args.thresh)
+    if not success:
+        logger.error('capture_video returned False')
+    else:
+        logger.info('capture_video finished successfully')

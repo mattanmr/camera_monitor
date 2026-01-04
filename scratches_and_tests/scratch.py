@@ -18,7 +18,7 @@ def preprocess(frame, width=None, blur_ksize=(5, 5)):
     return blurred
 
 
-def detect_motion(prev_frame, curr_frame, thresh_val=25, min_area=500):
+def detect_motion(prev_frame, curr_frame, thresh_val=15, min_area=500):
     """Return (motion_detected: bool, diff, thresh, large_contours).
 
     Uses absolute difference, thresholding, morphological filtering and contour area
@@ -38,7 +38,7 @@ def detect_motion(prev_frame, curr_frame, thresh_val=25, min_area=500):
     return len(large_contours) > 0, diff, thresh, large_contours
 
 
-def capture_video(source=0, duration=None, show_windows=True, min_area=500, width=None, thresh=25, min_frames=2):
+def capture_video(source=0, duration=None, show_windows=True, min_area=500, width=None, thresh=15, min_frames=2):
     """Capture from `source` for `duration` seconds (None = until 'q').
 
     Draws a red dot when motion is detected, blue otherwise. Returns True on normal exit.
@@ -47,6 +47,16 @@ def capture_video(source=0, duration=None, show_windows=True, min_area=500, widt
     if not cap.isOpened():
         logger.error("Failed to open video source: %s", source)
         return False
+
+    motion_recording_dealy = 20  # seconds to keep recording after motion stops
+
+    # Get the default frame width and height
+    frame_width = int(cap.get(cv2.CAP_PROP_FRAME_WIDTH))
+    frame_height = int(cap.get(cv2.CAP_PROP_FRAME_HEIGHT))
+
+    # Define the codec and create VideoWriter object
+    fourcc = cv2.VideoWriter_fourcc(*'mp4v')
+    # out = cv2.VideoWriter(f'output.mp4', fourcc, 20.0, (frame_width, frame_height))
 
     # Initialize previous frame
     ret, frame = cap.read()
@@ -66,6 +76,10 @@ def capture_video(source=0, duration=None, show_windows=True, min_area=500, widt
     red_dot = (0, 0, 255)
     blue_dot = (255, 0, 0)
     motion_streak = 0
+    motion_counter = 0
+    out = None
+    file_time = None
+    frame_count = 0
 
     while True:
         ret, frame = cap.read()
@@ -83,16 +97,45 @@ def capture_video(source=0, duration=None, show_windows=True, min_area=500, widt
         # choose dot color
         h, w = frame.shape[:2]
         center = (w - 60, 60)
-        color = red_dot if motion_active else blue_dot
+        color = red_dot if motion_active or (motion_counter > 0) else blue_dot
         cv2.circle(frame, center, 10, color, -1)
 
-        # draw bounding boxes (for debugging)
         if motion_active:
+            motion_counter = time.time()
+            file_time = time.strftime("%Y%m%d-%H%M%S") if file_time is None else file_time
+            if out is None:
+                out = cv2.VideoWriter(f'motion_{file_time}.mp4', fourcc, 20.0, (frame_width, frame_height))
+                logger.info(f"Motion detected, started recording to motion_{file_time}.mp4")
+            frame_count += 1
+
+
+            # Show current time code
+            time_code = time.strftime("%H:%M:%S")
+            cv2.putText(frame, time_code, (frame.shape[1] - 100, frame.shape[0] - 10),
+                        cv2.FONT_HERSHEY_SIMPLEX, 0.6, (255, 255, 255), 2)
+            # # Show
+            # cv2.putText(frame, str(frame_count).zfill(4), (10, frame.shape[0] - 10),
+            #             cv2.FONT_HERSHEY_SIMPLEX, 0.6, (255, 255, 255), 2)
+            # Draw bounding boxes
             for c in contours:
                 x, y, cw, ch = cv2.boundingRect(c)
                 cv2.rectangle(frame, (int(x * (frame.shape[1] / float(proc.shape[1]))), int(y * (frame.shape[0] / float(proc.shape[0])))),
                               (int((x + cw) * (frame.shape[1] / float(proc.shape[1]))), int((y + ch) * (frame.shape[0] / float(proc.shape[0])))),
                               (0, 255, 0), 2)
+
+        # if no motion for a while, stop recording
+        if time.time() - motion_counter > motion_recording_dealy:
+            motion_counter = 0
+            if out is not None:
+                out.release()
+                logger.info(
+                f"No motion for {str(motion_recording_dealy)}s, stopped recording, file saved at: motion_{file_time}.mp4")
+            file_time = None
+
+            out = None
+            frame_count = 0
+        else:
+            out.write(frame)
 
         if show_windows:
             cv2.imshow('Live Video', frame)
@@ -121,7 +164,7 @@ def build_arg_parser():
     p.add_argument('--duration', type=float, default=None, help="Seconds to run; omit for run-until-'q'")
     p.add_argument('--min-area', type=int, default=500, help='Minimum contour area to count as motion')
     p.add_argument('--width', type=int, default=None, help='Optional width to resize frames for processing')
-    p.add_argument('--thresh', type=int, default=25, help='Threshold value for diff->binary')
+    p.add_argument('--thresh', type=int, default=15, help='Threshold value for diff->binary')
     p.add_argument('--min-frames', type=int, default=2, help='Consecutive frames required to treat motion as active')
     p.add_argument('--no-windows', action='store_true', help='Do not show OpenCV GUI windows')
     return p

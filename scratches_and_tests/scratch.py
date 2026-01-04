@@ -38,7 +38,7 @@ def detect_motion(prev_frame, curr_frame, thresh_val=25, min_area=500):
     return len(large_contours) > 0, diff, thresh, large_contours
 
 
-def capture_video(source=0, duration=None, show_windows=True, min_area=500, width=None, thresh=25):
+def capture_video(source=0, duration=None, show_windows=True, min_area=500, width=None, thresh=25, min_frames=2):
     """Capture from `source` for `duration` seconds (None = until 'q').
 
     Draws a red dot when motion is detected, blue otherwise. Returns True on normal exit.
@@ -58,10 +58,14 @@ def capture_video(source=0, duration=None, show_windows=True, min_area=500, widt
     prev = preprocess(frame, width=width)
 
     start_time = time.time()
-    logger.info("Video capture started at unix time: %.3f", start_time)
+    if duration is None:
+        logger.info("Video capture started (run until 'q') at unix time: %.3f", start_time)
+    else:
+        logger.info("Video capture started at unix time: %.3f", start_time)
 
     red_dot = (0, 0, 255)
     blue_dot = (255, 0, 0)
+    motion_streak = 0
 
     while True:
         ret, frame = cap.read()
@@ -72,18 +76,23 @@ def capture_video(source=0, duration=None, show_windows=True, min_area=500, widt
         proc = preprocess(frame, width=width)
         motion, diff, thresh_img, contours = detect_motion(prev, proc, thresh_val=thresh, min_area=min_area)
 
+        # temporal debounce to stabilize jittery contours
+        motion_streak = motion_streak + 1 if motion else 0
+        motion_active = motion_streak >= min_frames
+
         # choose dot color
         h, w = frame.shape[:2]
         center = (w - 60, 60)
-        color = red_dot if motion else blue_dot
+        color = red_dot if motion_active else blue_dot
         cv2.circle(frame, center, 10, color, -1)
 
         # draw bounding boxes (for debugging)
-        for c in contours:
-            x, y, cw, ch = cv2.boundingRect(c)
-            cv2.rectangle(frame, (int(x * (frame.shape[1] / float(proc.shape[1]))), int(y * (frame.shape[0] / float(proc.shape[0])))),
-                          (int((x + cw) * (frame.shape[1] / float(proc.shape[1]))), int((y + ch) * (frame.shape[0] / float(proc.shape[0])))),
-                          (0, 255, 0), 2)
+        if motion_active:
+            for c in contours:
+                x, y, cw, ch = cv2.boundingRect(c)
+                cv2.rectangle(frame, (int(x * (frame.shape[1] / float(proc.shape[1]))), int(y * (frame.shape[0] / float(proc.shape[0])))),
+                              (int((x + cw) * (frame.shape[1] / float(proc.shape[1]))), int((y + ch) * (frame.shape[0] / float(proc.shape[0])))),
+                              (0, 255, 0), 2)
 
         if show_windows:
             cv2.imshow('Live Video', frame)
@@ -109,10 +118,11 @@ def capture_video(source=0, duration=None, show_windows=True, min_area=500, widt
 def build_arg_parser():
     p = argparse.ArgumentParser(description='Simple motion detector test harness')
     p.add_argument('--source', type=int, default=0, help='Video source index (default 0)')
-    p.add_argument('--duration', type=float, default=10.0, help='Seconds to run the capture (default 10)')
+    p.add_argument('--duration', type=float, default=None, help="Seconds to run; omit for run-until-'q'")
     p.add_argument('--min-area', type=int, default=500, help='Minimum contour area to count as motion')
     p.add_argument('--width', type=int, default=None, help='Optional width to resize frames for processing')
     p.add_argument('--thresh', type=int, default=25, help='Threshold value for diff->binary')
+    p.add_argument('--min-frames', type=int, default=2, help='Consecutive frames required to treat motion as active')
     p.add_argument('--no-windows', action='store_true', help='Do not show OpenCV GUI windows')
     return p
 
@@ -124,7 +134,7 @@ if __name__ == '__main__':
     show_windows = not args.no_windows
 
     success = capture_video(source=args.source, duration=args.duration, show_windows=show_windows,
-                            min_area=args.min_area, width=args.width, thresh=args.thresh)
+                            min_area=args.min_area, width=args.width, thresh=args.thresh, min_frames=args.min_frames)
     if not success:
         logger.error('capture_video returned False')
     else:

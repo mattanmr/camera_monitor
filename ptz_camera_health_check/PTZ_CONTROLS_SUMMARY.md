@@ -36,8 +36,9 @@ These work by intelligently cropping the frame and resizing back to original dim
 ## 📝 Usage Examples
 
 ### Hardware PTZ (if your camera supports it)
+
 ```python
-from main import CameraMonitor
+from ptz_camera_health_check.main import CameraMonitor
 
 monitor = CameraMonitor()
 
@@ -46,17 +47,18 @@ position = monitor.get_ptz_position()
 print(f"Pan: {position['pan']}, Tilt: {position['tilt']}, Zoom: {position['zoom']}")
 
 # Set position
-monitor.set_pan(45)        # Pan right
-monitor.set_tilt(-30)      # Tilt up
-monitor.set_zoom(5)        # Zoom in
+monitor.set_pan(45)  # Pan right
+monitor.set_tilt(-30)  # Tilt up
+monitor.set_zoom(5)  # Zoom in
 
 # Reset to home
 monitor.reset_ptz()
 ```
 
 ### Digital PTZ (works on ANY camera!)
+
 ```python
-from main import CameraMonitor
+from ptz_camera_health_check.main import CameraMonitor
 import cv2
 
 monitor = CameraMonitor()
@@ -67,17 +69,17 @@ ret, frame = cap.read()
 cap.release()
 
 # Digital pan
-pan_left = monitor.digital_pan(frame, pan_offset=-1.0)    # Pan left
-pan_right = monitor.digital_pan(frame, pan_offset=1.0)    # Pan right
+pan_left = monitor.digital_pan(frame, pan_offset=-1.0)  # Pan left
+pan_right = monitor.digital_pan(frame, pan_offset=1.0)  # Pan right
 
 # Digital tilt
-tilt_up = monitor.digital_tilt(frame, tilt_offset=-1.0)   # Tilt up
+tilt_up = monitor.digital_tilt(frame, tilt_offset=-1.0)  # Tilt up
 tilt_down = monitor.digital_tilt(frame, tilt_offset=1.0)  # Tilt down
 
 # Digital zoom
-zoom_2x = monitor.digital_zoom(frame, zoom_factor=2.0)    # 2x zoom
-zoom_3x = monitor.digital_zoom(frame, zoom_factor=3.0)    # 3x zoom
-zoom_out = monitor.digital_zoom(frame, zoom_factor=0.5)   # Zoom out
+zoom_2x = monitor.digital_zoom(frame, zoom_factor=2.0)  # 2x zoom
+zoom_3x = monitor.digital_zoom(frame, zoom_factor=3.0)  # 3x zoom
+zoom_out = monitor.digital_zoom(frame, zoom_factor=0.5)  # Zoom out
 
 # Save
 cv2.imwrite("pan_left.jpg", pan_left)

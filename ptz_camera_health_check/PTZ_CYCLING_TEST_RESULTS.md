@@ -74,7 +74,7 @@ Successfully captured frames with different PTZ effects:
 ### Usage Examples
 
 ```python
-from main import CameraMonitor
+from ptz_camera_health_check.main import CameraMonitor
 
 # Enable PTZ cycling (default)
 monitor = CameraMonitor(enable_ptz_cycling=True)

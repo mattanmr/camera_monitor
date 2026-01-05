@@ -97,7 +97,7 @@ def capture_video(source=0, duration=None, show_windows=True, min_area=500, widt
         h, w = frame.shape[:2]
         center = (w - 60, 60)
         color = red_dot if motion_active or (motion_counter > 0) else blue_dot
-        cv2.circle(frame, center, 10, color, -1)
+        cv2.circle(frame, center, 7, color, -1)
 
         if motion_active:
             motion_counter = time.time()
@@ -127,8 +127,10 @@ def capture_video(source=0, duration=None, show_windows=True, min_area=500, widt
         else:
             # Show current time code
             time_code = time.strftime("%H:%M:%S")
-            cv2.putText(frame, time_code, (frame.shape[1] - 100, frame.shape[0] - 10),
-                        cv2.FONT_HERSHEY_SIMPLEX, 0.6, (255, 255, 255), 2)
+            date_code = time.strftime("%d-%m-%Y")
+            text_string = f"{date_code} {time_code}"
+            cv2.putText(frame, text_string, (frame.shape[1] - 125, frame.shape[0] - 30),
+                        cv2.FONT_HERSHEY_SIMPLEX, 0.3, (255, 255, 255), 1)
             out.write(frame)
 
         if show_windows:

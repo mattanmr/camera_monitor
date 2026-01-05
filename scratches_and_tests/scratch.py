@@ -56,7 +56,7 @@ def capture_video(source=0, duration=None, show_windows=True, min_area=500, widt
 
     # Define the codec and create VideoWriter object
     fourcc = cv2.VideoWriter_fourcc(*'mp4v')
-    # out = cv2.VideoWriter(f'output.mp4', fourcc, 20.0, (frame_width, frame_height))
+    video_export_folder = "D:/motion_captures"
 
     # Initialize previous frame
     ret, frame = cap.read()
@@ -79,7 +79,6 @@ def capture_video(source=0, duration=None, show_windows=True, min_area=500, widt
     motion_counter = 0
     out = None
     file_time = None
-    frame_count = 0
 
     while True:
         ret, frame = cap.read()
@@ -104,18 +103,10 @@ def capture_video(source=0, duration=None, show_windows=True, min_area=500, widt
             motion_counter = time.time()
             file_time = time.strftime("%Y%m%d-%H%M%S") if file_time is None else file_time
             if out is None:
-                out = cv2.VideoWriter(f'motion_{file_time}.mp4', fourcc, 20.0, (frame_width, frame_height))
+                export_file_path = f'{video_export_folder}/motion_{file_time}.mp4'
+                out = cv2.VideoWriter(export_file_path, fourcc, 20.0, (frame_width, frame_height))
                 logger.info(f"Motion detected, started recording to motion_{file_time}.mp4")
-            frame_count += 1
 
-
-            # Show current time code
-            time_code = time.strftime("%H:%M:%S")
-            cv2.putText(frame, time_code, (frame.shape[1] - 100, frame.shape[0] - 10),
-                        cv2.FONT_HERSHEY_SIMPLEX, 0.6, (255, 255, 255), 2)
-            # # Show
-            # cv2.putText(frame, str(frame_count).zfill(4), (10, frame.shape[0] - 10),
-            #             cv2.FONT_HERSHEY_SIMPLEX, 0.6, (255, 255, 255), 2)
             # Draw bounding boxes
             for c in contours:
                 x, y, cw, ch = cv2.boundingRect(c)
@@ -133,8 +124,11 @@ def capture_video(source=0, duration=None, show_windows=True, min_area=500, widt
             file_time = None
 
             out = None
-            frame_count = 0
         else:
+            # Show current time code
+            time_code = time.strftime("%H:%M:%S")
+            cv2.putText(frame, time_code, (frame.shape[1] - 100, frame.shape[0] - 10),
+                        cv2.FONT_HERSHEY_SIMPLEX, 0.6, (255, 255, 255), 2)
             out.write(frame)
 
         if show_windows:

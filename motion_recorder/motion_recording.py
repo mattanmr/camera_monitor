@@ -1,10 +1,29 @@
 import time
 import argparse
 import logging
+import os
+import signal
+from pathlib import Path
 
 import cv2
 
 logger = logging.getLogger(__name__)
+
+# Shutdown flag for graceful termination
+shutdown_flag = False
+SHUTDOWN_FILE = Path(os.path.dirname(os.path.abspath(__file__))) / ".shutdown"
+
+
+def signal_handler(signum, frame):
+    """Handle termination signals (Ctrl+C, SIGTERM) gracefully."""
+    global shutdown_flag
+    shutdown_flag = True
+    logger.info(f"Received signal {signum}, initiating graceful shutdown...")
+
+
+# Register signal handlers
+signal.signal(signal.SIGINT, signal_handler)  # Ctrl+C
+signal.signal(signal.SIGTERM, signal_handler)  # Termination signal
 
 
 def preprocess(frame, width=None, blur_ksize=(5, 5)):
@@ -48,7 +67,7 @@ def capture_video(source=0, duration=None, show_windows=True, min_area=500, widt
         logger.error("Failed to open video source: %s", source)
         return False
 
-    motion_recording_dealy = 20  # seconds to keep recording after motion stops
+    motion_recording_delay = 20  # seconds to keep recording after motion stops
 
     # Get the default frame width and height
     frame_width = int(cap.get(cv2.CAP_PROP_FRAME_WIDTH))
@@ -76,7 +95,7 @@ def capture_video(source=0, duration=None, show_windows=True, min_area=500, widt
     red_dot = (0, 0, 255)
     blue_dot = (255, 0, 0)
     motion_streak = 0
-    motion_counter = 0
+    motion_counter = time.time()
     out = None
     file_time = None
 
@@ -105,7 +124,6 @@ def capture_video(source=0, duration=None, show_windows=True, min_area=500, widt
             if out is None:
                 todays_folder = time.strftime("%d_%m_%Y")
                 video_export_folder = f'D:/motion_captures/{todays_folder}'
-                import os
                 os.makedirs(video_export_folder, exist_ok=True)
                 export_file_path = f'{video_export_folder}/{file_time}.mp4'
                 out = cv2.VideoWriter(export_file_path, fourcc, 20.0, (frame_width, frame_height))
@@ -119,16 +137,17 @@ def capture_video(source=0, duration=None, show_windows=True, min_area=500, widt
                               (0, 255, 0), 2)
 
         # if no motion for a while, stop recording
-        if time.time() - motion_counter > motion_recording_dealy:
+        if time.time() - motion_counter > motion_recording_delay:
             motion_counter = 0
             if out is not None:
                 out.release()
                 logger.info(
-                f"No motion for {str(motion_recording_dealy)}s, stopped recording, file saved at: {export_file_path if 'export_file_path' in locals() else 'unknown'}")
+                f"No motion for {str(motion_recording_delay)}s, stopped recording, file saved at: {export_file_path if 'export_file_path' in locals() else 'unknown'}")
             file_time = None
-
             out = None
-        else:
+
+        # Write frame to video if recording
+        if out is not None:
             # Show current time code
             time_code = time.strftime("%H:%M:%S")
             date_code = time.strftime("%d-%m-%Y")
@@ -150,6 +169,10 @@ def capture_video(source=0, duration=None, show_windows=True, min_area=500, widt
 
         if duration is not None and (time.time() - start_time) >= duration:
             logger.info('Specified duration reached: %.1fs', duration)
+            break
+
+        if shutdown_flag:
+            logger.info("Shutdown flag detected, exiting...")
             break
 
     cap.release()

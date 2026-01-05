@@ -101,11 +101,15 @@ def capture_video(source=0, duration=None, show_windows=True, min_area=500, widt
 
         if motion_active:
             motion_counter = time.time()
-            file_time = time.strftime("%Y%m%d-%H%M%S") if file_time is None else file_time
+            file_time = time.strftime("%H-%M-%S") if file_time is None else file_time
             if out is None:
-                export_file_path = f'{video_export_folder}/motion_{file_time}.mp4'
+                todays_folder = time.strftime("%d_%m_%Y")
+                video_export_folder = f'D:/motion_captures/{todays_folder}'
+                import os
+                os.makedirs(video_export_folder, exist_ok=True)
+                export_file_path = f'{video_export_folder}/{file_time}.mp4'
                 out = cv2.VideoWriter(export_file_path, fourcc, 20.0, (frame_width, frame_height))
-                logger.info(f"Motion detected, started recording to motion_{file_time}.mp4")
+                logger.info(f"Motion detected, started recording to {export_file_path}")
 
             # Draw bounding boxes
             for c in contours:
@@ -120,7 +124,7 @@ def capture_video(source=0, duration=None, show_windows=True, min_area=500, widt
             if out is not None:
                 out.release()
                 logger.info(
-                f"No motion for {str(motion_recording_dealy)}s, stopped recording, file saved at: motion_{file_time}.mp4")
+                f"No motion for {str(motion_recording_dealy)}s, stopped recording, file saved at: {export_file_path if 'export_file_path' in locals() else 'unknown'}")
             file_time = None
 
             out = None
